@@ -21,7 +21,7 @@ A system to automate attendance tracking using face recognition. Students (or us
 | Backend / Logic | Python |
 | Face Recognition | OpenCV, KNN algorithm |
 | Web / Frontend | Flask / HTML / JS / Templates |
-| Data Storage | MySQL |
+| Data Storage | SQLLite3 |
 | UI | Webcam |
 
 ---
