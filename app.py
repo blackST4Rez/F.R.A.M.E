@@ -12,16 +12,22 @@ from dotenv import load_dotenv
 from tensorflow.keras.models import load_model
 import tensorflow as tf
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
-from flask_mysqldb import MySQL
-import MySQLdb.cursors
 from werkzeug.security import generate_password_hash, check_password_hash
 import pickle
+import sqlite3
 
 load_dotenv()
-# Initializing the flask app
 
+# Import database helper
+from db import init_db, get_db, dict_from_row
+
+# Initializing the flask app
 app=Flask(__name__)
-app.secret_key = os.getenv('SECRET_KEY')
+app.secret_key = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-production')
+
+# Initialize database on startup
+with app.app_context():
+    init_db()
 
 # Flask error handler
 @app.errorhandler(404)
@@ -29,14 +35,6 @@ app.secret_key = os.getenv('SECRET_KEY')
 @app.errorhandler(500)
 def http_error_handler(error):
     return render_template('Error.html')
-
-# MySQL configurations
-app.config['MYSQL_HOST'] = os.getenv("MYSQL_HOST")
-app.config['MYSQL_USER'] = os.getenv("MYSQL_USER")
-app.config['MYSQL_PASSWORD'] = os.getenv("MYSQL_PASSWORD")
-app.config['MYSQL_DB'] = os.getenv("MYSQL_DB")
-
-mysql = MySQL(app)
     
 # Flask assign admin
 @app.before_request
@@ -253,81 +251,81 @@ def load_cnn_model():
 
 # ======= Remove Attendance of Deleted User ======
 def remAttendance():
-
-    cur = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
-
-    # Collect valid IDs from both user tables
-    cur.execute("SELECT id FROM student WHERE status='registered'")
-    registered_ids = {str(row['id']) for row in cur.fetchall()}
-
-    cur.execute("SELECT id FROM student WHERE status='unregistered'")
-    unregistered_ids = {str(row['id']) for row in cur.fetchall()}
-
-    valid_ids = registered_ids | unregistered_ids
-
-    # If there are valid IDs, remove all attendance records that don't belong to them
-    if valid_ids:
-        ids_str = ",".join([f"'{i}'" for i in valid_ids])
-        cur.execute(f"DELETE FROM attendance WHERE id NOT IN ({ids_str})")
-
-    mysql.connection.commit()
-    cur.close()
+    with get_db() as conn:
+        cur = conn.cursor()
+        
+        # Collect valid IDs from student table
+        cur.execute("SELECT id FROM student WHERE status='registered'")
+        registered_ids = {str(row[0]) for row in cur.fetchall()}
+        
+        cur.execute("SELECT id FROM student WHERE status='unregistered'")
+        unregistered_ids = {str(row[0]) for row in cur.fetchall()}
+        
+        valid_ids = registered_ids | unregistered_ids
+        
+        # Remove attendance records that don't belong to valid students
+        if valid_ids:
+            placeholders = ','.join(['?' for _ in valid_ids])
+            cur.execute(f"DELETE FROM attendance WHERE id NOT IN ({placeholders})", list(valid_ids))
+        
+        conn.commit()
 
 # ======== Get Info From Attendance File =========
 def extract_attendance():
-    cur = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
-
-    datetoday_mysql = date.today().strftime("%Y-%m-%d")
+    with get_db() as conn:
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
         
-    query = """
-        SELECT a.name, a.id, a.section, a.time,
-               COALESCE(s.status, 'Unknown') AS status
-        FROM attendance a
-        LEFT JOIN student s ON a.id = s.id
-        WHERE DATE(a.time) = %s
-        ORDER BY a.time ASC
-    """
-    cur.execute(query, (datetoday_mysql,))
-    rows = cur.fetchall()
-    cur.close()
-
+        datetoday_date = date.today().strftime("%Y-%m-%d")
+        
+        query = """
+            SELECT a.name, a.id, a.section, a.time,
+                   COALESCE(s.status, 'Unknown') AS status
+            FROM attendance a
+            LEFT JOIN student s ON a.id = s.id
+            WHERE DATE(a.time) = ?
+            ORDER BY a.time ASC
+        """
+        cur.execute(query, (datetoday_date,))
+        rows = cur.fetchall()
+    
     if not rows:
         return [], [], [], [], datetoday, [], 0
-
-    names = [r['name'] for r in rows]
-    rolls = [r['id'] for r in rows]
-    sec   = [r['section'] for r in rows]
-    times = [r['time'].strftime("%H:%M:%S") for r in rows]  # just time
-    reg   = [r['status'] for r in rows]
-    l     = len(rows)
-
+    
+    names = [dict(r)['name'] for r in rows]
+    rolls = [dict(r)['id'] for r in rows]
+    sec = [dict(r)['section'] for r in rows]
+    times = [dict(r)['time'].split()[1] if dict(r)['time'] else "N/A" for r in rows]  # extract time portion
+    reg = [dict(r)['status'] for r in rows]
+    l = len(rows)
+    
     return names, rolls, sec, times, datetoday, reg, l
 
 # ======== Save Attendance =========
 def add_attendance(name):
     username, userid, usersection = name.split('$')
     current_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-    cur = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
-
-    # Check if already marked today (ignoring time, only by DATE)
-    cur.execute("""
-        SELECT * FROM attendance 
-        WHERE id=%s AND DATE(time)=%s
-    """, (userid, datetime.now().strftime("%Y-%m-%d")))
-    already = cur.fetchone()
-
-    if already:
-        cur.close()
-        return 
-
-    # Insert new attendance with full date+time
-    cur.execute("""
-        INSERT INTO attendance (id, name, section, time)
-        VALUES (%s, %s, %s, %s)
-    """, (userid, username, usersection, current_datetime))
-    mysql.connection.commit()
-    cur.close()
+    
+    with get_db() as conn:
+        cur = conn.cursor()
+        
+        # Check if already marked today
+        datetoday_str = datetime.now().strftime("%Y-%m-%d")
+        cur.execute("""
+            SELECT * FROM attendance 
+            WHERE id=? AND DATE(time)=?
+        """, (userid, datetoday_str))
+        already = cur.fetchone()
+        
+        if already:
+            return
+        
+        # Insert new attendance
+        cur.execute("""
+            INSERT INTO attendance (id, name, section, time, date)
+            VALUES (?, ?, ?, ?, ?)
+        """, (userid, username, usersection, current_datetime, datetoday_str))
+        conn.commit()
 
 # ======= Flask Home Page =========
 @app.route('/')
@@ -474,12 +472,13 @@ def adduserbtn():
         os.makedirs(userimagefolder)
 
     # Check if user already exists in DB
-    cur = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
-    cur.execute("SELECT * FROM student WHERE id = %s", (newuserid,))
-    existing_user = cur.fetchone()
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM student WHERE id = ?", (newuserid,))
+        existing_user = cur.fetchone()
+    
     if existing_user:
         cap.release()
-        cur.close()
         return render_template('AddUser.html', mess='User already exists in database.')
 
     images_captured = 0
@@ -520,28 +519,29 @@ def adduserbtn():
         shutil.rmtree(userimagefolder)
         return render_template('AddUser.html', mess='Failed to capture valid face images.')
 
-    # Insert new user into MySQL
-    cur = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
-    cur.execute("""
-        INSERT INTO student (name, id, section, status)
-        VALUES (%s, %s, %s, 'unregistered')
-    """, (newusername, newuserid, newusersection))
-    mysql.connection.commit()
-    cur.close()
+    # Insert new user into database
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO student (name, id, section, status)
+            VALUES (?, ?, ?, 'unregistered')
+        """, (newusername, newuserid, newusersection))
+        conn.commit()
 
     # Retrain model immediately with new user
     train_model()
-    load_cnn_model()  # Reload the model after training
+    load_cnn_model()
 
     # Fetch updated unregistered students
-    cur = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
-    cur.execute("SELECT * FROM student WHERE status='unregistered' ORDER BY id ASC")
-    rows = cur.fetchall()
-    cur.close()
+    with get_db() as conn:
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM student WHERE status='unregistered' ORDER BY id ASC")
+        rows = cur.fetchall()
 
-    names = [row['name'] for row in rows]
-    rolls = [str(row['id']) for row in rows]
-    sec = [row['section'] for row in rows]
+    names = [dict(r)['name'] for r in rows]
+    rolls = [str(dict(r)['id']) for r in rows]
+    sec = [dict(r)['section'] for r in rows]
     l = len(rows)
 
     return render_template('UnregisterUserList.html',
@@ -557,36 +557,36 @@ def attendance_list():
     return render_template('AttendanceList.html', names=names, rolls=rolls, sec=sec, times=times, dates=dates, reg=reg,
                            l=l)
     
-# ========== Flask Search Attendance by Date ============
 @app.route('/attendancelistdate', methods=['GET', 'POST'])
 def attendancelistdate():
     if not g.user:
         return render_template('LogInForm.html')
 
-    date_selected = request.form['date']  # "YYYY-MM-DD"
+    date_selected = request.form['date']
 
-    cur = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
-    cur.execute("""
-        SELECT a.name, a.id, a.section, a.time,
-               COALESCE(s.status, 'Unknown') AS status
-        FROM attendance a
-        LEFT JOIN student s ON a.id = s.id
-        WHERE DATE(a.time) = %s
-        ORDER BY a.time ASC
-    """, (date_selected,))
-    rows = cur.fetchall()
-    cur.close()
+    with get_db() as conn:
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT a.name, a.id, a.section, a.time,
+                   COALESCE(s.status, 'Unknown') AS status
+            FROM attendance a
+            LEFT JOIN student s ON a.id = s.id
+            WHERE DATE(a.time) = ?
+            ORDER BY a.time ASC
+        """, (date_selected,))
+        rows = cur.fetchall()
 
     if not rows:
         return render_template('AttendanceList.html', names=[], rolls=[], sec=[], times=[], reg=[], l=0,
                                mess="No records for this date.")
 
-    names = [r['name'] for r in rows]
-    rolls = [r['id'] for r in rows]
-    sec = [r['section'] for r in rows]
-    times = [r['time'].strftime("%H:%M:%S") for r in rows]
-    dates = [row['time'] for row in rows]
-    reg = [r['status'] for r in rows]
+    names = [dict(r)['name'] for r in rows]
+    rolls = [dict(r)['id'] for r in rows]
+    sec = [dict(r)['section'] for r in rows]
+    times = [dict(r)['time'].split()[1] if dict(r)['time'] else "N/A" for r in rows]
+    dates = [dict(r)['time'] for r in rows]
+    reg = [dict(r)['status'] for r in rows]
     l = len(rows)
 
     return render_template('AttendanceList.html',
@@ -604,18 +604,19 @@ def attendancelistid():
     if not student_id:
         return render_template('AttendanceList.html', names=[], rolls=[], sec=[], times=[], dates=[], reg=[], l=0, mess="No ID provided!")
 
-    cur = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
-    cur.execute("SELECT * FROM attendance WHERE id = %s", (student_id,))
-    rows = cur.fetchall()
-    cur.close()
+    with get_db() as conn:
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM attendance WHERE id = ?", (student_id,))
+        rows = cur.fetchall()
 
     if rows:
-        names = [row['name'] for row in rows]
-        rolls = [row['id'] for row in rows]
-        sec   = [row['section'] for row in rows]
-        times = [row['time'].strftime("%H:%M:%S") if row['time'] else "N/A" for row in rows]
-        dates = [row['time'].strftime("%Y-%m-%d") if row['time'] else "N/A" for row in rows]
-        reg   = ['Registered' if row['id'] in [r['id'] for r in rows] else 'Unregistered' for row in rows]
+        names = [dict(r)['name'] for r in rows]
+        rolls = [dict(r)['id'] for r in rows]
+        sec = [dict(r)['section'] for r in rows]
+        times = [dict(r)['time'].split()[1] if dict(r)['time'] else "N/A" for r in rows]
+        dates = [dict(r)['time'].split()[0] if dict(r)['time'] else "N/A" for r in rows]
+        reg = ['Registered' if dict(r)['id'] in [dict(s)['id'] for s in rows] else 'Unregistered' for r in rows]
         l = len(rows)
         return render_template('AttendanceList.html',
                                names=names, rolls=rolls, sec=sec,
@@ -638,42 +639,39 @@ def unregisteruser():
     except (ValueError, KeyError):
         return "Invalid index (not a number or missing)", 400
 
-    cur = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
-    # Get only registered students
-    cur.execute("SELECT * FROM student WHERE status='registered' ORDER BY id ASC")
-    registered = cur.fetchall()
+    with get_db() as conn:
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM student WHERE status='registered' ORDER BY id ASC")
+        registered = cur.fetchall()
 
-    if idx < 0 or idx >= len(registered):
-        return "Invalid index", 400
+        if idx < 0 or idx >= len(registered):
+            return "Invalid index", 400
 
-    user = registered[idx]
-    userid, username, section = user['id'], user['name'], user['section']
+        user = dict(registered[idx])
+        userid, username, section = user['id'], user['name'], user['section']
 
         # Move the face folder (optional)
-    old_folder = f"static/faces/{username}${userid}${section}"
-    new_folder = f"static/faces/{username}${userid}$None"
-    if os.path.exists(old_folder):
-        if os.path.exists(new_folder):
-            shutil.rmtree(new_folder)
-        shutil.move(old_folder, new_folder)
+        old_folder = f"static/faces/{username}${userid}${section}"
+        new_folder = f"static/faces/{username}${userid}$None"
+        if os.path.exists(old_folder):
+            if os.path.exists(new_folder):
+                shutil.rmtree(new_folder)
+            shutil.move(old_folder, new_folder)
         
-    # Update status in single student table
-    cur.execute(
-        "UPDATE student SET status='unregistered', section=NULL WHERE id=%s",
-        (userid,)
-    )
-    mysql.connection.commit()
-    cur.close()
+        # Update status in database
+        cur.execute(
+            "UPDATE student SET status='unregistered', section=NULL WHERE id=?",
+            (userid,)
+        )
+        conn.commit()
 
-    # Return updated list of registered students
-    cur = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
-    cur.execute("SELECT * FROM student WHERE status='registered' ORDER BY id ASC")
-    rows = cur.fetchall()
-    cur.close()
+        cur.execute("SELECT * FROM student WHERE status='registered' ORDER BY id ASC")
+        rows = cur.fetchall()
 
-    names = [r['name'] for r in rows]
-    rolls = [r['id'] for r in rows]
-    sec = [r['section'] for r in rows]
+    names = [dict(r)['name'] for r in rows]
+    rolls = [dict(r)['id'] for r in rows]
+    sec = [dict(r)['section'] for r in rows]
     l = len(rows)
 
     mess = f'Number of Registered Students: {l}' if l > 0 else "Database is empty!"
@@ -686,17 +684,18 @@ def unregister_user_list():
     if not g.user:
         return render_template('LogInForm.html')
     
-    cur = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
-    cur.execute("SELECT * FROM student WHERE status='unregistered' ORDER BY id ASC")
-    rows = cur.fetchall()
-    cur.close()
+    with get_db() as conn:
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM student WHERE status='unregistered' ORDER BY id ASC")
+        rows = cur.fetchall()
 
     if not rows:
         return render_template('UnregisterUserList.html', names=[], rolls=[], sec=[], l=0, mess="Database is empty!")
 
-    names = [row['name'] for row in rows]
-    rolls = [row['id'] for row in rows]
-    sec = [row['section'] for row in rows]
+    names = [dict(row)['name'] for row in rows]
+    rolls = [dict(row)['id'] for row in rows]
+    sec = [dict(row)['section'] for row in rows]
     l = len(rows)
 
     return render_template('UnregisterUserList.html', names=names, rolls=rolls, sec=sec, l=l,
@@ -710,26 +709,26 @@ def deleteunregistereduser():
 
     idx = int(request.form['index'])
 
-    cur = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
-    # Fetch unregistered students only
-    cur.execute("SELECT * FROM student WHERE status='unregistered' ORDER BY id ASC")
-    unregistered = cur.fetchall()
+    with get_db() as conn:
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM student WHERE status='unregistered' ORDER BY id ASC")
+        unregistered = cur.fetchall()
 
-    if idx >= len(unregistered):
-        return render_template('UnregisterUserList.html', names=[], rolls=[], sec=[], l=0, mess="Invalid user index.")
+        if idx >= len(unregistered):
+            return render_template('UnregisterUserList.html', names=[], rolls=[], sec=[], l=0, mess="Invalid user index.")
 
-    user = unregistered[idx]
-    username, userid, usersec = user['name'], user['id'], user['section']
+        user = dict(unregistered[idx])
+        username, userid, usersec = user['name'], user['id'], user['section']
 
-    folder = f'static/faces/{username}${userid}${usersec}'
-    if os.path.exists(folder):
-        shutil.rmtree(folder)
-        train_model()
+        folder = f'static/faces/{username}${userid}${usersec}'
+        if os.path.exists(folder):
+            shutil.rmtree(folder)
+            train_model()
 
-    # Delete student from table
-    cur.execute("DELETE FROM student WHERE id = %s AND status='unregistered'", (userid,))
-    mysql.connection.commit()
-    cur.close()
+        # Delete student from table
+        cur.execute("DELETE FROM student WHERE id = ? AND status='unregistered'", (userid,))
+        conn.commit()
 
     return redirect(url_for('unregister_user_list'))
     
@@ -739,15 +738,15 @@ def register_user_list():
     if not g.user:
         return render_template('LogInForm.html')
 
-    cur = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
+    with get_db() as conn:
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM student WHERE status='registered' ORDER BY id ASC")
+        rows = cur.fetchall()
 
-    cur.execute("SELECT * FROM student WHERE status='registered' ORDER BY id ASC")
-    rows = cur.fetchall()
-    cur.close()
-
-    names = [row['name'] for row in rows]
-    rolls = [row['id'] for row in rows]
-    sec = [row['section'] for row in rows]
+    names = [dict(row)['name'] for row in rows]
+    rolls = [dict(row)['id'] for row in rows]
+    sec = [dict(row)['section'] for row in rows]
     l = len(rows)
 
     mess = f'Number of Registered Students: {l}' if l else "Database is empty!"
@@ -765,42 +764,39 @@ def registeruser():
     except (ValueError, KeyError):
         return "Invalid input", 400
 
-    cur = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
-    # Get all unregistered students
-    cur.execute("SELECT * FROM student WHERE status='unregistered' ORDER BY id ASC")
-    unregistered = cur.fetchall()
+    with get_db() as conn:
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM student WHERE status='unregistered' ORDER BY id ASC")
+        unregistered = cur.fetchall()
 
-    if idx < 0 or idx >= len(unregistered):
-        return "Invalid user index", 400
+        if idx < 0 or idx >= len(unregistered):
+            return "Invalid user index", 400
 
-    user = unregistered[idx]
-    name, userid = user['name'], user['id']
+        user = dict(unregistered[idx])
+        name, userid = user['name'], user['id']
 
-    # Move the face folder
-    old_folder = f"static/faces/{name}${userid}$None"
-    new_folder = f"static/faces/{name}${userid}${section}"
-    if os.path.exists(old_folder):
-        if os.path.exists(new_folder):
-            shutil.rmtree(new_folder)
-        shutil.move(old_folder, new_folder)
+        # Move the face folder
+        old_folder = f"static/faces/{name}${userid}$None"
+        new_folder = f"static/faces/{name}${userid}${section}"
+        if os.path.exists(old_folder):
+            if os.path.exists(new_folder):
+                shutil.rmtree(new_folder)
+            shutil.move(old_folder, new_folder)
 
-    # Update status and section in single student table
-    cur.execute(
-        "UPDATE student SET status='registered', section=%s WHERE id=%s",
-        (section, userid)
-    )
-    mysql.connection.commit()
-    cur.close()
+        # Update status and section
+        cur.execute(
+            "UPDATE student SET status='registered', section=? WHERE id=?",
+            (section, userid)
+        )
+        conn.commit()
 
-    # Reload unregistered list
-    cur = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
-    cur.execute("SELECT * FROM student WHERE status='unregistered' ORDER BY id ASC")
-    rows = cur.fetchall()
-    cur.close()
+        cur.execute("SELECT * FROM student WHERE status='unregistered' ORDER BY id ASC")
+        rows = cur.fetchall()
 
-    names = [r['name'] for r in rows]
-    rolls = [r['user_id'] for r in rows]  # or r['id'] if you prefer DB ID
-    secs = [r['section'] for r in rows]
+    names = [dict(r)['name'] for r in rows]
+    rolls = [dict(r)['id'] for r in rows]
+    secs = [dict(r)['section'] for r in rows]
     l = len(rows)
 
     mess = f'Number of Unregistered Students: {l}' if l > 0 else "Database is empty!"
@@ -814,28 +810,28 @@ def deleteregistereduser():
 
     idx = int(request.form['index'])
 
-    cur = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
-    cur.execute("SELECT * FROM student WHERE status='registered' ORDER BY id ASC")
-    registered = cur.fetchall()
+    with get_db() as conn:
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM student WHERE status='registered' ORDER BY id ASC")
+        registered = cur.fetchall()
 
-    if idx >= len(registered):
-        return render_template('RegisterUserList.html', names=[], rolls=[], sec=[], l=0, mess="Invalid user index.")
+        if idx >= len(registered):
+            return render_template('RegisterUserList.html', names=[], rolls=[], sec=[], l=0, mess="Invalid user index.")
 
-    user = registered[idx]
-    username, userid, usersec = user['name'], user['id'], user['section']
+        user = dict(registered[idx])
+        username, userid, usersec = user['name'], user['id'], user['section']
 
-    # Delete face folder
-    folder = f'static/faces/{username}${userid}${usersec}'
-    if os.path.exists(folder):
-        shutil.rmtree(folder)
-        train_model()
+        # Delete face folder
+        folder = f'static/faces/{username}${userid}${usersec}'
+        if os.path.exists(folder):
+            shutil.rmtree(folder)
+            train_model()
 
-    # Delete from DB
-    cur.execute("DELETE FROM student WHERE id = %s and status='registered'", (userid,))
-    mysql.connection.commit()
-    cur.close()
+        # Delete from DB
+        cur.execute("DELETE FROM student WHERE id = ? and status='registered'", (userid,))
+        conn.commit()
 
-    # Refresh list
     return redirect(url_for('register_user_list'))
 
 # ======== Flask Login =========
@@ -849,30 +845,27 @@ def login():
         admin_id = request.form['admin_id']
         password = request.form['password']
 
-        cur = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
+        with get_db() as conn:
+            conn.row_factory = sqlite3.Row
+            cur = conn.cursor()
 
-        # Step 1: Fetch user
-        cur.execute("SELECT * FROM admin_signup WHERE admin_id = %s", (admin_id,))
-        user = cur.fetchone()
+            cur.execute("SELECT * FROM admin_signup WHERE admin_id = ?", (admin_id,))
+            user = cur.fetchone()
 
-        if user and check_password_hash(user['password'], password):
-            # Step 2: Insert login record (store login time, not password!)
-            try:
-                cur.execute("INSERT INTO admin_login (admin_id, username) VALUES (%s, %s)",
-                            (admin_id, user['username']))
-                mysql.connection.commit()
-                print("Stored login record for:", admin_id)
-            except Exception as e:
-                mysql.connection.rollback()
-                print("!!!Error inserting login record:", e)
+            if user and check_password_hash(dict(user)['password'], password):
+                try:
+                    cur.execute("INSERT INTO admin_login (admin_id, username) VALUES (?, ?)",
+                                (admin_id, dict(user)['username']))
+                    conn.commit()
+                    print("Stored login record for:", admin_id)
+                except Exception as e:
+                    conn.rollback()
+                    print("Error inserting login record:", e)
 
-            # Step 3: Save session
-            session['admin'] = admin_id
-            cur.close()
-            return redirect(url_for('home', admin=True, mess=f'Logged in as {admin_id}'))
-        else:
-            cur.close()
-            return render_template('LogInForm.html', mess='Incorrect Admin ID or Password')
+                session['admin'] = admin_id
+                return redirect(url_for('home', admin=True, mess=f'Logged in as {admin_id}'))
+            else:
+                return render_template('LogInForm.html', mess='Incorrect Admin ID or Password')
 
     return render_template('LogInForm.html')
 
@@ -892,28 +885,27 @@ def signup():
         password = request.form['password']
         hashed_password = generate_password_hash(password)
 
-        cur = mysql.connection.cursor()
-        cur.execute("SELECT * FROM admin_signup WHERE admin_id = %s", (admin_id,))
-        existing_user = cur.fetchone()
+        with get_db() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM admin_signup WHERE admin_id = ?", (admin_id,))
+            existing_user = cur.fetchone()
 
-        # Check if user already exists
-        if existing_user:
-            mess = "Admin ID already exists!"
-            return render_template('SignUpPage.html', mess=mess)
+            # Check if user already exists
+            if existing_user:
+                mess = "Admin ID already exists!"
+                return render_template('SignUpPage.html', mess=mess)
 
-        try:
-            # Insert new user
-            cur.execute("INSERT INTO admin_signup (admin_id, username, password) VALUES (%s, %s, %s)",
-                        (admin_id, username, hashed_password))
-            mysql.connection.commit()
-            mess = "Account created successfully! Please log in."
-            return redirect(url_for('login', mess=mess))
-        except Exception as e:
-            mysql.connection.rollback()
-            mess = f"Database error: {str(e)}"
-            return render_template('SignUpPage.html', mess=mess)
-        finally:
-            cur.close()
+            try:
+                # Insert new user
+                cur.execute("INSERT INTO admin_signup (admin_id, username, password) VALUES (?, ?, ?)",
+                            (admin_id, username, hashed_password))
+                conn.commit()
+                mess = "Account created successfully! Please log in."
+                return redirect(url_for('login', mess=mess))
+            except Exception as e:
+                conn.rollback()
+                mess = f"Database error: {str(e)}"
+                return render_template('SignUpPage.html', mess=mess)
 
     return render_template('SignUpPage.html')
 
@@ -923,20 +915,21 @@ def adminlog():
     if 'admin' not in session:
         return render_template('LogInForm.html', mess="Please log in first.")
 
-    cur = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
-    
-    # Fetch all admin users from signup table
-    cur.execute("""
-        SELECT l.admin_id, s.username 
-        FROM admin_login l
-        JOIN admin_signup s ON l.admin_id = s.admin_id
-        ORDER BY l.admin_id DESC
-    """)
-    logs = cur.fetchall()
-    cur.close()
+    with get_db() as conn:
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        
+        # Fetch all admin users from login table
+        cur.execute("""
+            SELECT l.admin_id, s.username 
+            FROM admin_login l
+            JOIN admin_signup s ON l.admin_id = s.admin_id
+            ORDER BY l.admin_id DESC
+        """)
+        logs = cur.fetchall()
 
-    admin_ids = [log['admin_id'] for log in logs]
-    usernames = [log['username'] for log in logs]
+    admin_ids = [dict(log)['admin_id'] for log in logs]
+    usernames = [dict(log)['username'] for log in logs]
 
     return render_template('AdminLog.html', admin_ids=admin_ids, usernames=usernames, l=len(logs))
 

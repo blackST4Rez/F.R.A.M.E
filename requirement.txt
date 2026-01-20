@@ -8,5 +8,4 @@ tensorflow
 Pillow
 python-dotenv
 matplotlib
-flask-mysqldb
 werkzeug
