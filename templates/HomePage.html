@@ -291,12 +291,19 @@
     /* Quick Action Cards */
     .quick-actions {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      grid-template-columns: repeat(2, 1fr);
       gap: 16px;
       width: 100%;
       margin-top: 40px;
       position: relative;
       z-index: 5;
+    }
+
+    /* When not admin (only 2 items) */
+    .quick-actions:not(:has(.quick-action:nth-child(3))) {
+      max-width: 300px;
+      margin-left: auto;
+      margin-right: auto;
     }
 
     .quick-action {
@@ -309,6 +316,11 @@
       cursor: pointer;
       text-decoration: none;
       color: #1a2332;
+      min-height: 120px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
     }
 
     .quick-action:hover {
@@ -342,8 +354,104 @@
       box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
       font-size: 14px;
       font-weight: 600;
-      color: #ff6b6b;
+      color: #06141B;
       z-index: 50;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .admin-pfp {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      object-fit: cover;
+      border: 2px solid #11212D;
+    }
+
+    /* Login Popup */
+    .login-popup {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: linear-gradient(135deg, #11212B 0%, #06141B 100%);
+      padding: 30px 40px;
+      border-radius: 15px;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+      z-index: 1000;
+      text-align: center;
+      animation: fadeIn 0.5s ease-out;
+      display: none;
+    }
+
+    .login-popup.active {
+      display: block;
+    }
+
+    .login-popup img {
+      width: 60px;
+      height: 60px;
+      margin-bottom: 15px;
+    }
+
+    .login-popup h3 {
+      color: white;
+      margin-bottom: 10px;
+    }
+
+    .login-popup p {
+      color: #73838f;
+      margin-bottom: 20px;
+    }
+
+    /* Updated popup-close button to match SignUpPage.html navbar-btn hover effect */
+    .popup-close {
+      background: #11212D !important;
+      color: white !important;
+      padding: 12px 28px !important;
+      border: none !important;
+      border-radius: 25px !important;
+      font-weight: 700 !important;
+      cursor: pointer !important;
+      font-size: 12px !important;
+      letter-spacing: 1px !important;
+      text-transform: uppercase !important;
+      transition: all 0.3s ease !important;
+      text-decoration: none !important;
+      display: inline-block !important;
+    }
+
+    .popup-close:hover {
+      background: #9BA8AB !important;
+      color: #06141B !important;
+      transform: translateY(-2px) !important;
+    }
+
+    .overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.5);
+      z-index: 999;
+      display: none;
+    }
+
+    .overlay.active {
+      display: block;
+    }
+
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+        transform: translate(-50%, -60%);
+      }
+      to {
+        opacity: 1;
+        transform: translate(-50%, -50%);
+      }
     }
 
     /* Responsive */
@@ -432,6 +540,11 @@
         right: 30px;
         left: auto;
       }
+
+      .login-popup {
+        width: 90%;
+        padding: 20px;
+      }
     }
 
     @media (max-width: 480px) {
@@ -463,6 +576,10 @@
         grid-template-columns: repeat(2, 1fr);
       }
 
+      .quick-actions:not(:has(.quick-action:nth-child(3))) {
+        max-width: 250px;
+      }
+
       .center-visual {
         width: 150px;
         height: 150px;
@@ -472,12 +589,23 @@
         font-size: 12px;
         padding: 12px 16px;
       }
+
+      .admin-pfp {
+        width: 30px;
+        height: 30px;
+      }
+
+      .quick-action {
+        min-height: 100px;
+        padding: 12px;
+      }
     }
   </style>
 </head>
 
 <body>
-  <!-- Navigation Bar -->
+  {% if not admin %}
+  <!-- Navigation Bar - Only shown when NOT admin -->
   <nav class="navbar">
     <ul class="navbar-menu">
       <li><a href="#features">Features</a></li>
@@ -487,6 +615,18 @@
       <li class="nav-text"><a href="/login" class="navbar-btn">LOGIN</a></li>
     </ul>
   </nav>
+  {% endif %}
+
+  <!-- Popup Overlay -->
+  <div class="overlay" id="popupOverlay"></div>
+
+  <!-- Login Success Popup -->
+  <div class="login-popup" id="loginPopup">
+    <img src="static/images/admin.png" alt="Admin">
+    <h3>Welcome Back, Administrator!</h3>
+    <p>You have successfully logged in to the admin panel.</p>
+    <button class="popup-close" onclick="closePopup()">Continue</button>
+  </div>
 
   <!-- Main Container -->
   <div class="main-container">
@@ -498,11 +638,13 @@
         </a>
       </div>
       <div class="left-content">
-        <h1 class="left-title">The Intelligent Way to Manage Attendance</h1>
+        <h1 class="left-title">Admin Panel</h1>
+        {% if not admin %}
         <p class="left-description">
           Smart facial recognition technology with enterprise-grade security for your organization.
         </p>
         <a href="/attendance" class="cta-button">Take Attendance</a>
+        {% endif %}
       </div>
     </div>
 
@@ -521,14 +663,19 @@
 
     <!-- Right Section -->
     <div class="right-section">
-      {% if mess %}
-      <div class="message-display">{{ mess }}</div>
+      {% if mess and admin %}
+      <div class="message-display">
+        <img src="static/images/admin_pfp.png" alt="Admin Profile" class="admin-pfp">
+        <span>Administrator</span>
+      </div>
       {% endif %}
       
       <div class="right-content">
+        {% if not admin %}
         <h2 class="right-title">
           We make <span class="right-highlight">secure and intelligent</span> attendance systems for your organization.
         </h2>
+        {% endif %}
         
         <!-- Quick Actions -->
         <div class="quick-actions">
@@ -570,7 +717,7 @@
             <div class="quick-action-title">Logs</div>
           </a>
 
-          <a href="/login" class="quick-action">
+          <a href="/login" class="quick-action" id="logoutLink">
             <img src="static/images/logout.png" alt="Logout">
             <div class="quick-action-title">Logout</div>
           </a>
@@ -583,6 +730,44 @@
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/js/bootstrap.bundle.min.js"
     integrity="sha384-MrcW6ZMFYlzcLA8Nl+NtUVF0sA7MsXsP1UyJoMp4YLEuNSfAP+JcXn/tWtIaxVXM"
     crossorigin="anonymous"></script>
+
+  <script>
+    // Clear the popup flag when logging out
+    document.addEventListener('DOMContentLoaded', function() {
+      var logoutLink = document.getElementById('logoutLink');
+      if (logoutLink) {
+        logoutLink.addEventListener('click', function() {
+          // Clear the session storage flag when logging out
+          sessionStorage.removeItem('adminPopupShown');
+        });
+      }
+    });
+
+    // Show login popup when admin logs in - only once per session
+    {% if admin and mess %}
+    document.addEventListener('DOMContentLoaded', function() {
+      // Check if we've already shown the popup in this session
+      if (!sessionStorage.getItem('adminPopupShown')) {
+        // Show popup after a short delay
+        setTimeout(function() {
+          document.getElementById('loginPopup').classList.add('active');
+          document.getElementById('popupOverlay').classList.add('active');
+          
+          // Mark that we've shown the popup
+          sessionStorage.setItem('adminPopupShown', 'true');
+        }, 500);
+      }
+    });
+    {% endif %}
+
+    function closePopup() {
+      document.getElementById('loginPopup').classList.remove('active');
+      document.getElementById('popupOverlay').classList.remove('active');
+    }
+
+    // Close popup when clicking outside
+    document.getElementById('popupOverlay').addEventListener('click', closePopup);
+  </script>
 </body>
 
 </html>
