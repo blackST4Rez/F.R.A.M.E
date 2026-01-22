@@ -350,7 +350,8 @@
       right: 60px;
       background: white;
       padding: 16px 24px;
-      border-radius: 10px;
+      border: 1px solid white;
+      border-radius: 30px;
       box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
       font-size: 14px;
       font-weight: 600;
@@ -609,8 +610,6 @@
   <nav class="navbar">
     <ul class="navbar-menu">
       <li><a href="#features">Features</a></li>
-      <li><a href="#deals">Deals</a></li>
-      <li><a href="#blog">Blog</a></li>
       <li><a href="#help">Help</a></li>
       <li class="nav-text"><a href="/login" class="navbar-btn">LOGIN</a></li>
     </ul>
@@ -638,16 +637,17 @@
         </a>
       </div>
       <div class="left-content">
-        <h1 class="left-title">Admin Panel</h1>
-        {% if not admin %}
-        <p class="left-description">
-          Smart facial recognition technology with enterprise-grade security for your organization.
-        </p>
-        <a href="/attendance" class="cta-button">Take Attendance</a>
+        {% if admin %}
+          <h1 class="left-title">Admin Panel</h1>
+        {% else %}
+          <h1 class="left-title">An Intelligent Way</h1>
+          <p class="left-description">
+            Smart facial recognition technology with enterprise-grade security for your organization.
+          </p>
+          <a href="/attendance" class="cta-button">Take Attendance</a>
         {% endif %}
       </div>
     </div>
-
     <!-- Center Visual -->
     <div class="center-visual">
       {% if not admin %}

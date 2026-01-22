@@ -17,33 +17,60 @@
       }
 
       body {
-        font-family: "JetBrains Mono", monospace;
-        background: linear-gradient(135deg, #f5f5f5 0%, #e8e8e8 100%);
+        font-family: "Poppins", sans-serif;
+        background: linear-gradient(135deg, #0c161f 0%, #06141B 100%);
         min-height: 100vh;
-        color: #1a2332;
+        color: white;
         padding: 40px 20px;
+      }
+
+      /* Logo Container - Matching Attendance.html */
+      .logo-container {
+        position: absolute;
+        top: 30px;
+        left: 60px;
+        z-index: 10;
+      }
+
+      .logo-link {
+        display: inline-block;
+        text-decoration: none;
+        transition: all 0.3s ease;
+      }
+
+      .logo-link img {
+        width: 50px;
+        height: 50px;
+        object-fit: contain;
+        transition: transform 0.3s ease;
+        filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2));
+      }
+
+      .logo-link:hover img {
+        transform: scale(1.1);
       }
 
       .page-header {
         text-align: center;
         margin-bottom: 40px;
         animation: slideInDown 0.6s ease-out;
+        margin-top: 20px;
       }
 
       .page-title {
         font-size: 44px;
         font-weight: 700;
-        color: #ff6b6b;
+        color: white;
         margin-bottom: 16px;
       }
 
       .page-subtitle {
-        font-size: 18px;
-        color: #5a7a8a;
+        font-size: 20px;
+        color: #9BA8AB;
       }
 
       .message-alert {
-        max-width: 900px;
+        max-width: 1000px;
         margin: 0 auto 30px;
         padding: 16px 20px;
         background-color: rgba(255, 107, 107, 0.1);
@@ -57,20 +84,25 @@
       .container-wrapper {
         max-width: 1100px;
         margin: 0 auto;
+        position: relative;
       }
 
       .card {
-        background: white;
-        border-radius: 12px;
+        background: #253745;
+        border-radius: 18px;
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
         overflow: hidden;
         animation: slideInUp 0.6s ease-out 0.2s both;
       }
 
       .card-header {
-        background: linear-gradient(135deg, #5a7a8a 0%, #336d9f 100%);
+        background: linear-gradient(135deg, #11212D 0%, #06141B 100%);
         padding: 24px;
         color: white;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-wrap: wrap;
       }
 
       .card-header h2 {
@@ -99,22 +131,28 @@
       .search-input {
         flex: 1;
         padding: 10px 16px;
-        border: 1px solid #ddd;
+        background: rgba(255, 255, 255, 0.1);
+        border: 1px solid rgba(255, 255, 255, 0.2);
         border-radius: 8px;
         font-size: 14px;
-        font-family: "JetBrains Mono", monospace;
+        font-family: "Poppins", sans-serif;
+        color: white;
         transition: all 0.3s ease;
+      }
+
+      .search-input::placeholder {
+        color: rgba(255, 255, 255, 0.6);
       }
 
       .search-input:focus {
         outline: none;
-        border-color: #ff6b6b;
-        box-shadow: 0 0 0 3px rgba(255, 107, 107, 0.1);
+        border-color: #4a5c6a;
+        box-shadow: 0 0 0 3px rgba(74, 92, 106, 0.3);
       }
 
       .search-btn {
         padding: 10px 20px;
-        background-color: #ff6b6b;
+        background: linear-gradient(135deg, #11212D 0%, #06141B 100%);
         color: white;
         border: none;
         border-radius: 8px;
@@ -123,12 +161,12 @@
         cursor: pointer;
         transition: all 0.3s ease;
         white-space: nowrap;
+        letter-spacing: 0.5px;
       }
 
       .search-btn:hover {
-        background-color: #ff5252;
         transform: translateY(-2px);
-        box-shadow: 0 4px 12px rgba(255, 107, 107, 0.3);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
       }
 
       table {
@@ -138,15 +176,15 @@
       }
 
       thead {
-        background-color: #f5f5f5;
-        border-bottom: 2px solid #ddd;
+        background-color: #1a2332;
+        border-bottom: 2px solid #4a5c6a;
       }
 
       th {
         padding: 16px;
         text-align: left;
         font-weight: 700;
-        color: #5a7a8a;
+        color: #9BA8AB;
         font-size: 14px;
         text-transform: uppercase;
         letter-spacing: 0.5px;
@@ -154,8 +192,9 @@
 
       td {
         padding: 14px 16px;
-        border-bottom: 1px solid #e8e8e8;
+        border-bottom: 1px solid #4a5c6a;
         font-size: 14px;
+        color: white;
       }
 
       tbody tr {
@@ -163,11 +202,11 @@
       }
 
       tbody tr:hover {
-        background-color: #f5f5f5;
+        background-color: rgba(255, 255, 255, 0.05);
       }
 
       tbody tr:nth-child(even) {
-        background-color: #fafafa;
+        background-color: rgba(255, 255, 255, 0.03);
       }
 
       .status-badge {
@@ -179,19 +218,22 @@
       }
 
       .status-registered {
-        background-color: #e8f5e9;
-        color: #2e7d32;
+        background-color: rgba(46, 125, 50, 0.2);
+        color: #4CAF50;
+        border: 1px solid rgba(76, 175, 80, 0.3);
       }
 
       .status-unregistered {
-        background-color: #fff3e0;
-        color: #e65100;
+        background-color: rgba(230, 81, 0, 0.2);
+        color: #FF9800;
+        border: 1px solid rgba(255, 152, 0, 0.3);
       }
 
       .no-data {
         text-align: center;
         padding: 40px 20px;
-        color: #999;
+        color: #9BA8AB;
+        font-size: 16px;
       }
 
       @keyframes slideInDown {
@@ -231,63 +273,57 @@
       }
 
       @media (max-width: 768px) {
+        .logo-container {
+          top: 20px;
+          left: 30px;
+        }
+        
         .page-title {
           font-size: 32px;
         }
-
+        
         .card-body {
           padding: 20px;
         }
-
+        
+        .card-header {
+          flex-direction: column;
+          align-items: flex-start;
+          gap: 15px;
+        }
+        
         th, td {
           padding: 12px 8px;
           font-size: 13px;
         }
-
-        .search-input {
-          font-size: 13px;
-        }
-      }
-
-      .logo-link {
-        display: inline-block;
-        text-decoration: none;
-        margin-bottom: 20px;
-        transition: all 0.3s ease;
-      }
-
-      .logo-link img {
-        width: 50px;
-        height: 50px;
-        object-fit: contain;
-        transition: transform 0.3s ease;
-      }
-
-      .logo-link:hover img {
-        transform: scale(1.1);
       }
 
       @media (max-width: 480px) {
         body {
           padding: 20px 10px;
         }
-
+        
+        .logo-container {
+          top: 15px;
+          left: 20px;
+        }
+        
         .page-title {
           font-size: 24px;
         }
-
+        
         .card-body {
           padding: 15px;
         }
-
+        
         table {
           font-size: 12px;
         }
-
+        
         th, td {
           padding: 10px 6px;
         }
-
+        
         .status-badge {
           padding: 3px 8px;
           font-size: 11px;
@@ -297,9 +333,13 @@
 </head>
 
 <body>
-  <a href="/" class="logo-link" title="Go to Home">
-    <img src="static/images/favicon.png" alt="F.R.A.M.E Logo">
-  </a>
+  <!-- Logo Container - Matching Attendance.html -->
+  <div class="logo-container">
+    <a href="/" class="logo-link" title="Go to Home">
+      <img src="static/images/favicon.png" alt="F.R.A.M.E Logo">
+    </a>
+  </div>
+  
   <div class="page-header">
     <div class="page-title">F.R.A.M.E</div>
     <div class="page-subtitle">Facial Recognition Attendance Management System</div>
